@@ -1,7 +1,9 @@
 import { lazy, Suspense, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { listingBySlug, similarTo } from '../data/listings'
-import { agentById } from '../data/agents'
+import type { Listing as ListingT } from '../data/listings'
+import type { Agent } from '../data/agents'
+import { useApi } from '../lib/api'
+import { ErrorBox, Loading } from '../components/States'
 import { bathLabel, num, priceLabel, roomOf, usd } from '../lib/format'
 import { useTitle } from '../lib/useTitle'
 import Img from '../components/Img'
@@ -26,12 +28,16 @@ function H2({ children, id }: { children: string; id?: string }) {
 
 export default function Listing() {
   const { slug = '' } = useParams()
-  const l = listingBySlug(slug)
+  const { data, error, loading, reload } = useApi<{ listing: ListingT; agent: Agent | null }>(`/listings/${encodeURIComponent(slug)}`)
+  const sim = useApi<ListingT[]>(`/listings/${encodeURIComponent(slug)}/similar`)
   const [lb, setLb] = useState<number | null>(null)
-  useTitle(l ? `${l.title}, ${l.address}` : 'Listing not found')
-  if (!l) return <NotFound />
-  const agent = agentById(l.agentId)
-  const similar = similarTo(l)
+  const l = data && data.listing.slug === slug ? data.listing : null
+  useTitle(l ? `${l.title}, ${l.address}` : error?.status === 404 ? 'Listing not found' : 'Loading listing')
+  if (error?.status === 404) return <NotFound />
+  if (error && !l) return <div className="mx-auto max-w-page px-5 pt-10 sm:px-8"><ErrorBox error={error} retry={reload} /></div>
+  if (!l || loading && !l) return <div className="mx-auto max-w-page px-5 pt-10 sm:px-8"><Loading label="Loading listing…" /></div>
+  const agent = data?.agent ?? undefined
+  const similar = sim.data ?? []
   const ppsf = l.mode === 'buy' ? usd(l.price / l.sqft) : `$${(l.price / l.sqft).toFixed(2)}`
   const facts: [string, string][] = [
     ['Bedrooms', String(l.beds)],

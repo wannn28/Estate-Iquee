@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { listings, type Mode } from '../data/listings'
-import { neighborhoods } from '../data/neighborhoods'
-import { agents } from '../data/agents'
-import { testimonials } from '../data/testimonials'
+import type { Listing, Mode } from '../data/listings'
+import type { Testimonial } from '../data/testimonials'
+import { useApi } from '../lib/api'
+import { useCatalog } from '../lib/catalog'
+import { ErrorBox, Skeleton } from '../components/States'
 import { PRICE_STEPS } from '../lib/filters'
 import { bathLabel, num, priceLabel, shortPrice, usd } from '../lib/format'
 import { useTitle } from '../lib/useTitle'
@@ -27,8 +28,11 @@ export function SectionHead({ n, title, kicker, action }: { n: string; title: st
   )
 }
 
+interface HomeData { cover: Listing; featured: Listing[]; recent: Listing[]; counts: { buy: number; rent: number } }
+
 function HeroSearch() {
   const nav = useNavigate()
+  const { neighborhoods } = useCatalog()
   const [mode, setMode] = useState<Mode>('buy')
   const [area, setArea] = useState('')
   const [max, setMax] = useState('')
@@ -83,7 +87,10 @@ function HeroSearch() {
 
 function Testimonials() {
   const [i, setI] = useState(0)
+  const { data } = useApi<Testimonial[]>('/testimonials')
+  const testimonials = data ?? []
   const t = testimonials[i]
+  if (!t) return null
   const go = (d: number) => setI((x) => (x + d + testimonials.length) % testimonials.length)
   return (
     <section className="mx-auto mt-28 max-w-page px-5 sm:px-8" aria-label="Client testimonials">
@@ -110,12 +117,12 @@ function Testimonials() {
 
 export default function Home() {
   useTitle('')
-  const cover = listings[0]
-  const featured = listings.filter((l) => l.featured && l.id !== cover.id)
-  const [lead, ...rest] = featured
+  const { data, error, reload } = useApi<HomeData>('/home')
+  const { agents, neighborhoods } = useCatalog()
+  const cover = data?.cover
+  const [lead, ...rest] = (data?.featured ?? []).filter((l) => l.id !== cover?.id)
   const side = rest.slice(0, 2)
-  const index = listings.filter((l) => !l.featured).sort((a, b) => a.daysListed - b.daysListed).slice(0, 6)
-  const counts = (covers: string[]) => listings.filter((l) => covers.includes(l.neighborhood)).length
+  const index = data?.recent ?? []
 
   return (
     <>
@@ -130,23 +137,30 @@ export default function Home() {
               Austin homes, <em className="italic">considered.</em>
             </h1>
           </div>
-          <Link to={`/listing/${cover.slug}`} className="group absolute right-5 top-6 hidden items-center gap-3 bg-chalk/90 py-2 pl-3 pr-4 text-[13px] text-ink backdrop-blur transition hover:bg-chalk sm:right-8 md:flex">
+          {cover && <Link to={`/listing/${cover.slug}`} className="group absolute right-5 top-6 hidden items-center gap-3 bg-chalk/90 py-2 pl-3 pr-4 text-[13px] text-ink backdrop-blur transition hover:bg-chalk sm:right-8 md:flex">
             <span className="text-[10px] font-semibold uppercase tracking-label text-oak">On the cover</span>
             <span className="font-serif text-lg leading-none">{cover.title}</span>
             <span className="tabular-nums text-graphite">{cover.neighborhood} · {priceLabel(cover)}</span>
             <Arrow size={16} className="transition group-hover:translate-x-0.5" />
-          </Link>
+          </Link>}
         </div>
         <div className="relative z-10 mx-auto -mt-28 max-w-page px-5 sm:px-8 md:-mt-24">
           <div className="max-w-5xl"><HeroSearch /></div>
-          <p className="mt-4 text-sm text-graphite">{listings.filter((l) => l.mode === 'buy').length} homes for sale and {listings.filter((l) => l.mode === 'rent').length} for rent, each walked by an agent before it’s listed.</p>
+          <p className="mt-4 min-h-5 text-sm text-graphite">{data && <>{data.counts.buy} homes for sale and {data.counts.rent} for rent, each walked by an agent before it’s listed.</>}</p>
         </div>
       </section>
 
       {/* Featured */}
       <section className="mx-auto mt-24 max-w-page px-5 sm:px-8" aria-label="Featured homes">
         <SectionHead n="01" title="This week’s homes" kicker="Houses our agents would buy themselves. New listings appear here first, usually two days before the portals." action={{ to: '/search', label: 'All homes for sale' }} />
-        <div className="mt-10 grid gap-10 lg:grid-cols-12">
+        {error && <ErrorBox error={error} retry={reload} className="mt-10" />}
+        {!data && !error && (
+          <div className="mt-10 grid gap-10 lg:grid-cols-12" aria-busy="true">
+            <Skeleton className="aspect-[4/3] lg:col-span-7" />
+            <div className="grid content-start gap-10 lg:col-span-5"><Skeleton className="aspect-[3/2]" /><Skeleton className="aspect-[3/2]" /></div>
+          </div>
+        )}
+        {lead && <div className="mt-10 grid gap-10 lg:grid-cols-12">
           <article className="group relative lg:col-span-7">
             <div className="relative overflow-hidden">
               <Img name={lead.photos[0]} alt={`${lead.title}, ${lead.address}`} sizes="(min-width:1024px) 55vw, 100vw" className="aspect-[4/3] w-full transition duration-700 group-hover:scale-[1.02]" />
@@ -168,7 +182,7 @@ export default function Home() {
           <div className="grid content-start gap-10 lg:col-span-5">
             {side.map((l) => <ListingCard key={l.id} l={l} sizes="(min-width:1024px) 38vw, 100vw" />)}
           </div>
-        </div>
+        </div>}
 
         {/* Index table */}
         <div className="mt-16">
@@ -202,7 +216,7 @@ export default function Home() {
               <li key={h.slug} className={`group relative ${k % 2 === 1 ? 'lg:mt-16' : ''}`}>
                 <div className="overflow-hidden"><Img name={h.photo} alt="" sizes="(min-width:1024px) 16vw, 50vw" className="aspect-[4/5] w-full transition duration-700 group-hover:scale-[1.04]" /></div>
                 <h3 className="mt-4 font-serif text-2xl leading-tight"><Link to={`/search?area=${h.slug}${h.slug === 'downtown' ? '&mode=rent' : ''}`} className="stretched">{h.name}</Link></h3>
-                <p className="mt-1 text-xs font-medium tabular-nums text-oak">{h.median} · {counts(h.covers)} listings</p>
+                <p className="mt-1 text-xs font-medium tabular-nums text-oak">{h.median} · {h.listings} listings</p>
                 <p className="mt-2 text-[13px] leading-relaxed text-graphite">{h.blurb}</p>
               </li>
             ))}

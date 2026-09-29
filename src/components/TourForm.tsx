@@ -4,6 +4,8 @@ import type { Agent } from '../data/agents'
 import Field from './Field'
 import { aria, EMAIL_RE, inputCls, PHONE_RE } from '../lib/forms'
 import { Check } from './Icons'
+import { api, ApiError } from '../lib/api'
+import { useFavorites } from '../lib/favorites'
 
 const TIMES = ['9:00 AM', '10:30 AM', '12:00 PM', '1:30 PM', '3:00 PM', '4:30 PM', '6:00 PM']
 
@@ -19,7 +21,11 @@ export default function TourForm({ l, agent }: { l: Listing; agent?: Agent }) {
   }, [])
   const [s, setS] = useState<State>({ date: '', time: '', kind: 'in-person', name: '', email: '', phone: '', note: '', consent: false })
   const [errors, setErrors] = useState<Errors>({})
-  const [sent, setSent] = useState<null | State>(null)
+  const [sent, setSent] = useState<null | (State & { ref: number })>(null)
+  const [busy, setBusy] = useState(false)
+  const [formErr, setFormErr] = useState('')
+  const [website, setWebsite] = useState('') // honeypot
+  const { clientId } = useFavorites()
   const summaryRef = useRef<HTMLDivElement>(null)
   const set = <K extends keyof State>(k: K, v: State[K]) => { setS((p) => ({ ...p, [k]: v })); if (errors[k]) setErrors((e) => ({ ...e, [k]: undefined })) }
 
@@ -34,16 +40,27 @@ export default function TourForm({ l, agent }: { l: Listing; agent?: Agent }) {
     return e
   }
 
-  function submit(ev: FormEvent) {
+  async function submit(ev: FormEvent) {
     ev.preventDefault()
+    if (busy) return
     const e = validate(s)
     setErrors(e)
+    setFormErr('')
     if (Object.keys(e).length) { requestAnimationFrame(() => summaryRef.current?.focus()); return }
+    setBusy(true)
     try {
-      const all = JSON.parse(localStorage.getItem('hollisrow:tours:v1') ?? '[]')
-      localStorage.setItem('hollisrow:tours:v1', JSON.stringify([{ listing: l.id, ...s, at: new Date().toISOString() }, ...all].slice(0, 20)))
-    } catch { /* ignore */ }
-    setSent(s)
+      const r = await api<{ id: number }>('/tour-requests', { method: 'POST', body: { listingId: l.id, ...s, clientId, website } })
+      setSent({ ...s, ref: r.id })
+    } catch (err) {
+      if (err instanceof ApiError && err.fields) {
+        setErrors(err.fields as Errors)
+        requestAnimationFrame(() => summaryRef.current?.focus())
+      } else {
+        setFormErr(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
   const fmt = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -54,14 +71,14 @@ export default function TourForm({ l, agent }: { l: Listing; agent?: Agent }) {
         <span className="grid h-10 w-10 place-items-center bg-oak text-chalk"><Check /></span>
         <h3 className="mt-4 font-serif text-3xl leading-tight">Tour requested</h3>
         <p className="mt-2 text-[15px] leading-relaxed">{sent.kind === 'video' ? 'Video tour' : 'In-person tour'} of <strong>{l.title}</strong> on {fmt(sent.date)} at {sent.time}. {agent ? `${agent.name.split(' ')[0]} would confirm by email within a few hours.` : ''}</p>
-        <p className="mt-3 text-xs text-graphite">Demo only — nothing was sent. Your request is stored in this browser’s localStorage.</p>
+        <p className="mt-3 text-xs text-graphite">Saved to the Hollis Row database{sent.ref ? ` as request #${sent.ref}` : ''}. This is a demo, so no email goes out and no one will call; requests are deleted automatically after 14 days.</p>
         <button type="button" className="mt-5 text-sm font-medium underline underline-offset-4" onClick={() => { setSent(null); setS((p) => ({ ...p, date: '', time: '' })) }}>Book another time</button>
       </div>
     )
 
   const errList = Object.entries(errors).filter(([, v]) => v)
   return (
-    <form onSubmit={submit} noValidate className="space-y-5" data-testid="tour-form" aria-labelledby="tour-h">
+    <form onSubmit={submit} noValidate className="relative space-y-5" data-testid="tour-form" aria-labelledby="tour-h">
       {errList.length > 0 && (
         <div ref={summaryRef} tabIndex={-1} className="border-l-4 border-[#B3261E] bg-[#B3261E]/5 px-4 py-3 text-sm outline-none" role="alert">
           <p className="font-semibold">Please fix {errList.length === 1 ? '1 field' : `${errList.length} fields`}:</p>
@@ -121,7 +138,11 @@ export default function TourForm({ l, agent }: { l: Listing; agent?: Agent }) {
         </label>
         {errors.consent && <p id="tour-consent-err" className="mt-1.5 text-xs font-medium text-[#B3261E]">{errors.consent}</p>}
       </div>
-      <button type="submit" className="w-full bg-oak px-5 py-3.5 font-medium text-chalk transition hover:bg-oak-dark">Request tour</button>
+      <div className="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
+        <label>Website <input tabIndex={-1} autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} name="website" /></label>
+      </div>
+      {formErr && <p className="border-l-4 border-[#B3261E] bg-[#B3261E]/5 px-4 py-3 text-sm" role="alert">{formErr}</p>}
+      <button type="submit" disabled={busy} className="w-full bg-oak px-5 py-3.5 font-medium text-chalk transition hover:bg-oak-dark disabled:opacity-60">{busy ? 'Sending…' : 'Request tour'}</button>
     </form>
   )
 }

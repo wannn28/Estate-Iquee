@@ -17,7 +17,7 @@ function DemoBar() {
     <div className="bg-ink text-chalk">
       <p className="mx-auto max-w-page px-5 py-2 text-center text-[12px] tracking-wide sm:px-8">
         <span className="mr-2 bg-oak px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-label">Demo</span>
-        Portfolio project by <a href="https://iquee.tech" className="underline decoration-chalk/40 underline-offset-2 hover:decoration-chalk">iQuee</a>. Listings, agents and prices are fictional.
+        Portfolio project by <a href="https://iquee.tech" className="underline decoration-chalk/40 underline-offset-2 hover:decoration-chalk">iQuee</a>. Listings, agents and prices are fictional; forms save to a real Go + MySQL backend.
       </p>
     </div>
   )
@@ -104,7 +104,7 @@ function Footer() {
         <p className="mt-16 select-none font-serif text-[clamp(4rem,15vw,13rem)] leading-[0.8] tracking-tight text-ink" aria-hidden>Hollis Row</p>
         <div className="mt-8 flex flex-col gap-3 border-t border-rule py-6 text-[13px] text-graphite md:flex-row md:justify-between">
           <p><strong className="font-semibold text-ink">Demo website.</strong> Hollis Row is a fictional brokerage; listings, people, prices and addresses are invented. Nothing is for sale.</p>
-          <p>Design &amp; build by <a className="underline underline-offset-2 hover:text-oak" href="https://iquee.tech">iQuee</a> · Photos: Pexels · Maps © OpenStreetMap</p>
+          <p><Link to="/admin" className="underline underline-offset-2 hover:text-oak">Demo admin inbox</Link> · Design &amp; build by <a className="underline underline-offset-2 hover:text-oak" href="https://iquee.tech">iQuee</a> · Photos: Pexels · Maps © OpenStreetMap</p>
         </div>
       </div>
     </footer>

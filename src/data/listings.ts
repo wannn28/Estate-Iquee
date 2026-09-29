@@ -1,22 +1,8 @@
 export type Mode = 'buy' | 'rent'
 export type PropertyType = 'House' | 'Condo' | 'Townhouse' | 'Loft' | 'Duplex'
 
-export const AMENITIES = [
-  'Pool',
-  'Garage',
-  'Private yard',
-  'Home office',
-  'Pet friendly',
-  'EV charger',
-  'Fireplace',
-  'In-unit laundry',
-  'Gym',
-  'Balcony or deck',
-  'Solar panels',
-  'Guest house / ADU',
-  'Water view',
-  'Concierge',
-] as const
+import { AMENITIES } from './amenities'
+export { AMENITIES }
 export type Amenity = (typeof AMENITIES)[number]
 
 export interface Listing {

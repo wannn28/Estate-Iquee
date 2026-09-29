@@ -1,12 +1,18 @@
-import { Link } from 'react-router-dom'
-import { agents } from '../data/agents'
-import { listings } from '../data/listings'
+import { useEffect } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { useCatalog } from '../lib/catalog'
+import { ErrorBox, Loading } from '../components/States'
 import { useTitle } from '../lib/useTitle'
 import Img from '../components/Img'
 import { Mail, Phone } from '../components/Icons'
 
 export default function Agents() {
   useTitle('Our agents')
+  const { agents, loading, error, reload } = useCatalog()
+  const { hash } = useLocation()
+  useEffect(() => { // agents arrive async, so jump to /agents#id once they have rendered
+    if (hash && agents.length) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView()
+  }, [hash, agents.length])
   return (
     <div className="mx-auto max-w-page px-5 pt-10 sm:px-8">
       <header className="grid gap-8 border-b border-ink pb-10 lg:grid-cols-2 lg:items-end">
@@ -16,9 +22,10 @@ export default function Agents() {
         </div>
         <p className="max-w-lg text-lg leading-relaxed text-graphite lg:justify-self-end">No teams of juniors, no hand-offs. Each agent below takes a limited number of clients a year, and works each of them personally from first viewing to closing.</p>
       </header>
+      {error && !agents.length && <ErrorBox error={error} retry={reload} className="mt-10" />}
+      {loading && !agents.length && <Loading label="Loading agents…" />}
       <ol>
         {agents.map((a, k) => {
-          const active = listings.filter((l) => l.agentId === a.id)
           return (
             <li key={a.id} id={a.id} className="grid scroll-mt-24 gap-8 border-b border-rule py-12 md:grid-cols-[14rem_1fr] lg:grid-cols-[18rem_1fr_16rem]">
               <Img name={a.photo} alt={`Portrait of ${a.name}`} sizes="(min-width:1024px) 18rem, 14rem" className="aspect-[4/5] w-full max-w-[18rem]" />
@@ -45,7 +52,7 @@ export default function Agents() {
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <Link to={`/contact?agent=${a.id}`} className="bg-oak px-4 py-2.5 text-sm font-medium text-chalk hover:bg-oak-dark">Message {a.name.split(' ')[0]}</Link>
-                  {active.length > 0 && <Link to={`/search?agent=${a.id}${active.every((l) => l.mode === 'rent') ? '&mode=rent' : ''}`} className="border border-ink/25 px-4 py-2.5 text-sm hover:border-ink">{active.length} active listings</Link>}
+                  {a.activeListings > 0 && <Link to={`/search?agent=${a.id}${a.rentOnly ? '&mode=rent' : ''}`} className="border border-ink/25 px-4 py-2.5 text-sm hover:border-ink">{a.activeListings} active listings</Link>}
                 </div>
               </div>
             </li>
