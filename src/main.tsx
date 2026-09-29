@@ -7,13 +7,16 @@ import '@fontsource-variable/geist'
 import './index.css'
 import App from './App'
 import { FavoritesProvider } from './lib/favorites'
+import { CatalogProvider } from './lib/catalog'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <FavoritesProvider>
-        <App />
-      </FavoritesProvider>
+      <CatalogProvider>
+        <FavoritesProvider>
+          <App />
+        </FavoritesProvider>
+      </CatalogProvider>
     </BrowserRouter>
   </StrictMode>,
 )

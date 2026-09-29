@@ -1,6 +1,8 @@
 import { lazy, Suspense, useRef, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { agents, agentById } from '../data/agents'
+import { useCatalog } from '../lib/catalog'
+import { api, ApiError } from '../lib/api'
+import { useFavorites } from '../lib/favorites'
 import type { Listing } from '../data/listings'
 import { useTitle } from '../lib/useTitle'
 import Field from '../components/Field'
@@ -16,15 +18,22 @@ const OFFICE = { id: 'office', slug: '', title: 'Hollis Row office', lat: 30.268
 export default function Contact() {
   useTitle('Contact')
   const [sp] = useSearchParams()
+  const { agents, agentById } = useCatalog()
+  const { clientId } = useFavorites()
+  const [busy, setBusy] = useState(false)
+  const [formErr, setFormErr] = useState('')
+  const [website, setWebsite] = useState('') // honeypot
   const initTopic = (TOPICS.find(([k]) => k === sp.get('topic'))?.[0] ?? 'buying') as Topic
-  const [v, setV] = useState({ name: '', email: '', phone: '', topic: initTopic, agent: agentById(sp.get('agent') ?? '')?.id ?? '', message: '' })
+  const [v, setV] = useState({ name: '', email: '', phone: '', topic: initTopic, agent: sp.get('agent') ?? '', message: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [done, setDone] = useState(false)
   const firstErr = useRef<HTMLDivElement>(null)
   const set = (k: keyof typeof v, val: string) => { setV((p) => ({ ...p, [k]: val })); if (errors[k]) setErrors((e) => { const n = { ...e }; delete n[k]; return n }) }
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault()
+    if (busy) return
+    setFormErr('')
     const er: Record<string, string> = {}
     if (v.name.trim().length < 2) er.name = 'Enter your name.'
     if (!EMAIL_RE.test(v.email.trim())) er.email = 'Enter a valid email address.'
@@ -32,7 +41,20 @@ export default function Contact() {
     if (v.message.trim().length < 10) er.message = 'Tell us a little more (at least 10 characters).'
     setErrors(er)
     if (Object.keys(er).length) { requestAnimationFrame(() => firstErr.current?.focus()); return }
-    setDone(true)
+    setBusy(true)
+    try {
+      await api('/contact-messages', { method: 'POST', body: { topic: v.topic, name: v.name, email: v.email, phone: v.phone, agentId: agentById(v.agent)?.id ?? '', message: v.message, clientId, website } })
+      setDone(true)
+    } catch (err) {
+      if (err instanceof ApiError && err.fields) {
+        const f = { ...err.fields }
+        if (f.agentId) { f.agent = f.agentId; delete f.agentId }
+        setErrors(f)
+        requestAnimationFrame(() => firstErr.current?.focus())
+      } else setFormErr(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -48,10 +70,10 @@ export default function Contact() {
               <span className="grid h-10 w-10 place-items-center bg-oak text-chalk"><Check /></span>
               <h2 className="mt-4 font-serif text-4xl">Thanks, {v.name.split(' ')[0]}.</h2>
               <p className="mt-2 text-[15px]">In real life, {v.agent ? agentById(v.agent)?.name : 'someone from the team'} would reply within one business day.</p>
-              <p className="mt-3 text-xs text-graphite">Demo only — this message was not sent anywhere.</p>
+              <p className="mt-3 text-xs text-graphite">Your message was saved to the Hollis Row database. It’s a demo, so nobody will reply; messages are deleted automatically after 14 days.</p>
             </div>
           ) : (
-            <form onSubmit={submit} noValidate className="grid gap-5 sm:grid-cols-2">
+            <form onSubmit={submit} noValidate className="relative grid gap-5 sm:grid-cols-2">
               {Object.keys(errors).length > 0 && (
                 <div ref={firstErr} tabIndex={-1} role="alert" className="border-l-4 border-[#B3261E] bg-[#B3261E]/5 px-4 py-3 text-sm outline-none sm:col-span-2">
                   Please check the highlighted {Object.keys(errors).length === 1 ? 'field' : 'fields'}.
@@ -82,8 +104,12 @@ export default function Contact() {
                 </Field>
               </div>
               <div className="sm:col-span-2 flex flex-wrap items-center gap-4">
-                <button type="submit" className="bg-oak px-6 py-3.5 font-medium text-chalk hover:bg-oak-dark">Send message</button>
-                <p className="text-xs text-graphite">Demo form — nothing is sent or stored on a server.</p>
+                <button type="submit" disabled={busy} className="bg-oak px-6 py-3.5 font-medium text-chalk hover:bg-oak-dark disabled:opacity-60">{busy ? 'Sending…' : 'Send message'}</button>
+                <p className="text-xs text-graphite">Demo form: messages are stored for 14 days and never emailed or shared.</p>
+                {formErr && <p className="w-full border-l-4 border-[#B3261E] bg-[#B3261E]/5 px-4 py-3 text-sm" role="alert">{formErr}</p>}
+                <div className="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
+                  <label>Website <input tabIndex={-1} autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} name="website" /></label>
+                </div>
               </div>
             </form>
           )}

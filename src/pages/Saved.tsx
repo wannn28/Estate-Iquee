@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
-import { listings } from '../data/listings'
+import type { Listing } from '../data/listings'
+import { useApi } from '../lib/api'
+import { ErrorBox, Loading } from '../components/States'
 import { useFavorites } from '../lib/favorites'
 import { priceLabel } from '../lib/format'
 import { useTitle } from '../lib/useTitle'
@@ -7,8 +9,12 @@ import ListingCard from '../components/ListingCard'
 
 export default function Saved() {
   useTitle('Saved homes')
-  const { saved, clear } = useFavorites()
-  const items = saved.map((id) => listings.find((l) => l.id === id)).filter((l): l is (typeof listings)[number] => !!l)
+  const { saved, clear, clientId } = useFavorites()
+  // The shortlist is stored server-side under this browser's anonymous id; refetch when it changes.
+  const { data, error, reload } = useApi<{ ids: string[]; items: Listing[] }>(`/saved/${clientId}?v=${encodeURIComponent(saved.join(','))}`)
+  const byId = new Map((data?.items ?? []).map((l) => [l.id, l]))
+  const items = saved.map((id) => byId.get(id)).filter((l): l is Listing => !!l)
+  const waiting = !data && !error && saved.length > 0
   const buy = items.filter((l) => l.mode === 'buy')
   const rent = items.filter((l) => l.mode === 'rent')
   return (
@@ -17,13 +23,14 @@ export default function Saved() {
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-label text-oak">Your shortlist</p>
           <h1 className="mt-2 font-serif text-6xl leading-[0.92] tracking-tight">Saved homes</h1>
-          <p className="mt-3 text-graphite">{items.length ? `${items.length} saved · stored in this browser only` : 'Nothing saved yet.'}</p>
+          <p className="mt-3 text-graphite">{items.length ? `${items.length} saved · synced to the demo database for this browser (no account needed)` : waiting ? 'Loading your shortlist…' : 'Nothing saved yet.'}</p>
         </div>
         {items.length > 0 && (
           <button type="button" onClick={() => { if (confirm('Remove all saved homes?')) clear() }} className="self-start border border-ink/25 px-4 py-2.5 text-sm hover:border-ink md:self-auto">Clear all</button>
         )}
       </div>
-      {!items.length ? (
+      {error && <ErrorBox error={error} retry={reload} className="mt-8" />}
+      {waiting ? <Loading label="Loading saved homes…" /> : !items.length ? (
         <div className="grid gap-10 py-16 md:grid-cols-2">
           <p className="font-serif text-4xl leading-tight">Tap the heart on any listing to keep it here. We don’t ask you to sign up.</p>
           <div className="flex items-start gap-3 md:justify-end">

@@ -1,9 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { AMENITIES, type Amenity, type PropertyType } from '../data/listings'
-import { neighborhoods } from '../data/neighborhoods'
-import { agents, agentById } from '../data/agents'
-import { activeCount, applyFilters, parseFilters, PRICE_STEPS, toParams, type Filters, type Sort, type View } from '../lib/filters'
+import type { Amenity, Listing, PropertyType } from '../data/listings'
+import { AMENITIES } from '../data/amenities'
+import { activeCount, apiParams, parseFilters, PRICE_STEPS, toParams, type Filters, type Sort, type View } from '../lib/filters'
+import { api, ApiError, useApi } from '../lib/api'
+import { useCatalog } from '../lib/catalog'
+import { ErrorBox, Loading } from '../components/States'
 import { usd } from '../lib/format'
 import { useTitle } from '../lib/useTitle'
 import ListingCard from '../components/ListingCard'
@@ -11,6 +13,10 @@ import { Close, Grid, List, MapIcon, Sliders } from '../components/Icons'
 
 const ListingMap = lazy(() => import('../components/ListingMap'))
 const TYPES: PropertyType[] = ['House', 'Townhouse', 'Condo', 'Loft', 'Duplex']
+const PAGE = 12
+
+interface Facets { types: Record<string, number>; amenities: Record<string, number> }
+interface SearchResp { items: Listing[]; total: number; page: number; pages: number; size: number; facets: Facets }
 
 function Chips<T extends string | number>({ name, options, value, onChange, fmt }: { name: string; options: T[]; value: T; onChange: (v: T) => void; fmt: (v: T) => string }) {
   return (
@@ -37,12 +43,12 @@ function Check({ label, checked, onChange, count }: { label: string; checked: bo
   )
 }
 
-function FilterPanel({ f, set, reset }: { f: Filters; set: (p: Partial<Filters>) => void; reset: () => void }) {
+function FilterPanel({ f, set, reset, facets }: { f: Filters; set: (p: Partial<Filters>) => void; reset: () => void; facets?: Facets }) {
+  const { agents, neighborhoods } = useCatalog()
   const steps = PRICE_STEPS[f.mode]
   const sfx = f.mode === 'rent' ? '/mo' : ''
   const selCls = 'w-full border border-ink/20 bg-chalk px-3 py-2.5 text-[15px] outline-none focus:border-ink'
   const toggle = <T,>(arr: T[], v: T) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
-  const base = applyFilters({ ...f, types: [], amenities: [] })
   return (
     <div className="space-y-7">
       <div>
@@ -70,11 +76,11 @@ function FilterPanel({ f, set, reset }: { f: Filters; set: (p: Partial<Filters>)
       <Chips name="Bathrooms" options={[0, 1, 2, 3, 4]} value={f.baths} onChange={(v) => set({ baths: v })} fmt={(v) => (v ? `${v}+` : 'Any')} />
       <fieldset>
         <legend className="mb-1 text-[11px] font-semibold uppercase tracking-label text-graphite">Property type</legend>
-        {TYPES.map((t) => <Check key={t} label={t} checked={f.types.includes(t)} onChange={() => set({ types: toggle(f.types, t) })} count={base.filter((l) => l.type === t).length} />)}
+        {TYPES.map((t) => <Check key={t} label={t} checked={f.types.includes(t)} onChange={() => set({ types: toggle(f.types, t) })} count={facets?.types[t]} />)}
       </fieldset>
       <fieldset>
         <legend className="mb-1 text-[11px] font-semibold uppercase tracking-label text-graphite">Amenities</legend>
-        {AMENITIES.map((a) => <Check key={a} label={a} checked={f.amenities.includes(a)} onChange={() => set({ amenities: toggle(f.amenities, a as Amenity) })} count={base.filter((l) => l.amenities.includes(a)).length} />)}
+        {AMENITIES.map((a) => <Check key={a} label={a} checked={f.amenities.includes(a)} onChange={() => set({ amenities: toggle(f.amenities, a as Amenity) })} count={facets?.amenities[a]} />)}
       </fieldset>
       <div>
         <label htmlFor="f-agent" className="mb-2 block text-[11px] font-semibold uppercase tracking-label text-graphite">Listing agent</label>
@@ -91,7 +97,31 @@ function FilterPanel({ f, set, reset }: { f: Filters; set: (p: Partial<Filters>)
 export default function Search() {
   const [sp, setSp] = useSearchParams()
   const f = useMemo(() => parseFilters(sp), [sp])
-  const results = useMemo(() => applyFilters(f), [f])
+  const { agentById, neighborhoods } = useCatalog()
+  const isMap = f.view === 'map'
+  // Filtering, sorting and paging all happen in MySQL; the page only renders what the API returns.
+  const key = useMemo(() => apiParams(f).toString(), [f])
+  const res = useApi<SearchResp>(`/listings?${key}&size=${isMap ? 100 : PAGE}`)
+  const [more, setMore] = useState<{ key: string; page: number; items: Listing[] }>({ key: '', page: 1, items: [] })
+  const [moreBusy, setMoreBusy] = useState(false)
+  const [moreErr, setMoreErr] = useState<ApiError | null>(null)
+  const data = res.data
+  const results = data ? (more.key === key && !isMap ? [...data.items, ...more.items] : data.items) : []
+  const total = data?.total ?? 0
+  const stale = res.loading && !!data
+  async function loadMore() {
+    const next = (more.key === key ? more.page : 1) + 1
+    setMoreBusy(true)
+    setMoreErr(null)
+    try {
+      const r = await api<SearchResp>(`/listings?${key}&size=${PAGE}&page=${next}`)
+      setMore((m) => ({ key, page: next, items: [...(m.key === key ? m.items : []), ...r.items] }))
+    } catch (e) {
+      setMoreErr(e instanceof ApiError ? e : new ApiError(0, 'unknown', String(e)))
+    } finally {
+      setMoreBusy(false)
+    }
+  }
   const [active, setActive] = useState<string | null>(null)
   const [drawer, setDrawer] = useState(false)
   const set = (p: Partial<Filters>) => setSp(toParams({ ...f, ...p }), { replace: true })
@@ -144,7 +174,7 @@ export default function Search() {
             ))}
           </div>
           <h1 className="font-serif text-5xl leading-[0.95] tracking-tight md:text-6xl">{heading}</h1>
-          <p className="mt-3 text-graphite" aria-live="polite"><span className="font-semibold tabular-nums text-ink" data-testid="result-count">{results.length}</span> {results.length === 1 ? 'home' : 'homes'} · demo listings</p>
+          <p className="mt-3 text-graphite" aria-live="polite"><span className="font-semibold tabular-nums text-ink" data-testid="result-count">{data ? total : '…'}</span> {total === 1 ? 'home' : 'homes'} · demo listings</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={() => setDrawer(true)} className="flex items-center gap-2 border border-ink/25 px-4 py-2.5 text-sm font-medium lg:hidden" aria-haspopup="dialog">
@@ -181,10 +211,10 @@ export default function Search() {
 
       <div className="mt-8 grid gap-10 lg:grid-cols-[16.5rem_1fr]">
         <aside className="hidden lg:block" aria-label="Filters">
-          <div className="pb-6"><FilterPanel f={f} set={set} reset={reset} /></div>
+          <div className="pb-6"><FilterPanel f={f} set={set} reset={reset} facets={data?.facets} /></div>
         </aside>
-        <section aria-label="Results" className="min-w-0">
-          {f.view === 'map' ? (
+        <section aria-label="Results" aria-busy={res.loading} className={`min-w-0 transition-opacity ${stale ? 'opacity-60' : ''}`}>
+          {res.error && !data ? <ErrorBox error={res.error} retry={res.reload} /> : !data ? <Loading label="Searching homes…" /> : f.view === 'map' ? (
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
               <div className="order-2 xl:order-1">
                 {results.length ? results.map((l) => <ListingCard key={l.id} l={l} layout="compact" onHover={setActive} active={active === l.id} />) : empty}
@@ -204,6 +234,14 @@ export default function Search() {
               {results.map((l) => <ListingCard key={l.id} l={l} sizes="(min-width:1280px) 22vw, (min-width:640px) 45vw, 100vw" />)}
             </div>
           )}
+          {data && !isMap && results.length < total && (
+            <div className="mt-12 flex flex-col items-center gap-3">
+              <p className="text-sm tabular-nums text-graphite">Showing {results.length} of {total}</p>
+              <button type="button" onClick={loadMore} disabled={moreBusy} className="border border-ink px-6 py-3 text-sm font-medium transition hover:bg-ink hover:text-chalk disabled:opacity-50" data-testid="show-more">{moreBusy ? 'Loading…' : 'Show more homes'}</button>
+              {moreErr && <p className="text-sm text-[#B3261E]" role="alert">{moreErr.message}</p>}
+            </div>
+          )}
+          {res.error && data && <p className="mt-6 text-sm text-[#B3261E]" role="alert">Couldn’t refresh results: {res.error.message} <button type="button" className="underline" onClick={res.reload}>Retry</button></p>}
           <p className="mt-12 text-sm text-graphite">Don’t see it? Half our sales never hit the portals. <Link to="/contact?topic=buying" className="font-medium text-ink underline underline-offset-4">Tell us what you’re looking for</Link>.</p>
         </section>
       </div>
@@ -216,8 +254,8 @@ export default function Search() {
               <p className="font-serif text-3xl">Filters</p>
               <button type="button" onClick={() => setDrawer(false)} aria-label="Close filters" className="grid h-10 w-10 place-items-center" autoFocus><Close /></button>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 py-6"><FilterPanel f={f} set={set} reset={reset} /></div>
-            <div className="border-t border-rule p-4"><button type="button" onClick={() => setDrawer(false)} className="w-full bg-oak py-3.5 font-medium text-chalk">Show {results.length} homes</button></div>
+            <div className="flex-1 overflow-y-auto px-5 py-6"><FilterPanel f={f} set={set} reset={reset} facets={data?.facets} /></div>
+            <div className="border-t border-rule p-4"><button type="button" onClick={() => setDrawer(false)} className="w-full bg-oak py-3.5 font-medium text-chalk">Show {total} homes</button></div>
           </div>
         </div>
       )}

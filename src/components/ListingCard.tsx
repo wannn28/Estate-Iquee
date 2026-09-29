@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { Listing } from '../data/listings'
-import { agentById } from '../data/agents'
+import { useCatalog } from '../lib/catalog'
 import { bathLabel, num, priceLabel } from '../lib/format'
 import Img from './Img'
 import SaveButton from './SaveButton'
@@ -28,6 +28,7 @@ interface Props {
 }
 
 export default function ListingCard({ l, layout = 'grid', sizes, onHover, active }: Props) {
+  const { agentById } = useCatalog()
   const hover = onHover ? { onMouseEnter: () => onHover(l.id), onMouseLeave: () => onHover(null), onFocus: () => onHover(l.id), onBlur: () => onHover(null) } : {}
   if (layout === 'list' || layout === 'compact') {
     const agent = agentById(l.agentId)

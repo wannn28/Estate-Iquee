@@ -1,5 +1,4 @@
-import { listings, type Amenity, type Listing, type Mode, type PropertyType } from '../data/listings'
-import { neighborhoods } from '../data/neighborhoods'
+import type { Amenity, Mode, PropertyType } from '../data/listings'
 
 export type Sort = 'newest' | 'price-asc' | 'price-desc' | 'sqft-desc'
 export type View = 'grid' | 'list' | 'map'
@@ -62,27 +61,11 @@ export function toParams(f: Filters): URLSearchParams {
   return p
 }
 
-export function applyFilters(f: Filters): Listing[] {
-  const hood = neighborhoods.find((h) => h.slug === f.area)
-  const out = listings.filter(
-    (l) =>
-      l.mode === f.mode &&
-      (!hood || hood.covers.includes(l.neighborhood)) &&
-      (!f.min || l.price >= f.min) &&
-      (!f.max || l.price <= f.max) &&
-      l.beds >= f.beds &&
-      l.baths >= f.baths &&
-      (!f.types.length || f.types.includes(l.type)) &&
-      f.amenities.every((a) => l.amenities.includes(a)) &&
-      (!f.agent || l.agentId === f.agent),
-  )
-  const s = {
-    newest: (a: Listing, b: Listing) => a.daysListed - b.daysListed,
-    'price-asc': (a: Listing, b: Listing) => a.price - b.price,
-    'price-desc': (a: Listing, b: Listing) => b.price - a.price,
-    'sqft-desc': (a: Listing, b: Listing) => b.sqft - a.sqft,
-  }[f.sort]
-  return out.sort(s)
+/** Query string for GET /api/listings: every filter + sort (the view is UI-only). */
+export function apiParams(f: Filters): URLSearchParams {
+  const p = toParams({ ...f, view: 'grid' })
+  p.set('mode', f.mode)
+  return p
 }
 
 export function activeCount(f: Filters) {
